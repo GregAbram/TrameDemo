@@ -13,8 +13,8 @@ connection, so you don't need X, VNC or any extra ports or tunnels.
 1. ssh to Stampede3 and run the installer once (it takes a few minutes):
 
    ```bash
-   git clone <this repo> trame-paraview-tap
-   trame-paraview-tap/install_trame_jupyter.sh
+   git clone https://github.com/GregAbram/TrameDemo.git
+   TrameDemo/install_trame_jupyter.sh
    ```
 
 2. Log out and back in.
