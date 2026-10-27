@@ -74,6 +74,27 @@ KERNEL_DIR=${HOME}/.local/share/jupyter/kernels/${KERNEL_NAME}
 for f in "${PV}/bin/pvpython" "${SYSPY}"; do
     [[ -e "$f" ]] || { echo "ERROR: missing $f (see Settings at the top of $0)"; exit 1; }
 done
+
+# Libraries ${SYSPY} can't find on its own, e.g. GCC's libssp.so.0 for
+# ParaView's Python: load PV_MODULES and record the directories they are in,
+# for bin/jupyter-lab, which TAP starts with whatever modules are loaded
+missing_libs() { env -u LD_LIBRARY_PATH ldd "$1" 2>/dev/null | awk '/not found/ {print $1}' | sort -u; }
+PY_LIBDIRS=
+if [[ -n "$(missing_libs "${SYSPY}")" ]]; then
+    if type module &>/dev/null; then
+        set +u
+        module load ${PV_MODULES} || { echo "ERROR: module load ${PV_MODULES} failed"; exit 1; }
+        set -u
+    fi
+    for lib in $(missing_libs "${SYSPY}"); do
+        path=$(ldd "${SYSPY}" 2>/dev/null | awk -v l="${lib}" '$1 == l && $3 ~ /^\// {print $3; exit}')
+        [[ -n "${path}" ]] || { echo "ERROR: ${SYSPY} needs ${lib}, not found even with ${PV_MODULES} loaded"; exit 1; }
+        dir=$(realpath -s "$(dirname "${path}")")   # -s: keep /opt/apps/... as the module has it
+        [[ ":${PY_LIBDIRS}:" == *":${dir}:"* ]] || PY_LIBDIRS=${PY_LIBDIRS:+${PY_LIBDIRS}:}${dir}
+    done
+    echo "${SYSPY} needs libraries from ${PY_LIBDIRS}; bin/jupyter-lab will add them to LD_LIBRARY_PATH"
+fi
+
 "${SYSPY}" -c 'import sys; sys.exit(sys.version_info[:2] != (3, 12))' || {
     echo "ERROR: ${SYSPY} is not Python 3.12 (ParaView's bundled Python is 3.12)"; exit 1; }
 
@@ -138,9 +159,9 @@ fi
 
 PY="${VENV}/bin/python"
 
-# bin/jupyter-lab runs this Python without loading any modules, so it has to
-# work on its own (matters when the venv is built from ParaView's Python)
-if ! env -u LD_LIBRARY_PATH "${PY}" -c 'import ssl, sqlite3, ctypes'; then
+# bin/jupyter-lab runs this Python without loading any modules, with only
+# PY_LIBDIRS added to LD_LIBRARY_PATH, so it has to work like that
+if ! env LD_LIBRARY_PATH="${PY_LIBDIRS}" "${PY}" -c 'import ssl, sqlite3, ctypes'; then
     echo "ERROR: ${PY} (from ${SYSPY}) does not run without modules loaded;"
     echo "       set SYSPY to a standalone Python 3.12"
     exit 1
@@ -242,10 +263,15 @@ EOF
 # why ~/.bashrc puts ${TRAME}/bin first on PATH (below). Not exec: TAP checks
 # `ps | grep <this path>` to see that Jupyter started.
 mkdir -p "${TRAME}/bin"
+LIBPATH_LINE=
+if [[ -n "${PY_LIBDIRS}" ]]; then
+    LIBPATH_LINE="export LD_LIBRARY_PATH=\"${PY_LIBDIRS}\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}\"   # for ${SYSPY}"
+fi
 cat > "${TRAME}/bin/jupyter-lab" <<EOF
 #!/bin/bash
 # jupyter-lab -> ${VENV} (written by install_trame_jupyter.sh)
 unset PYTHONPATH PYTHONHOME
+${LIBPATH_LINE}
 "${VENV}/bin/jupyter-lab" "\$@"
 EOF
 chmod +x "${TRAME}/bin/jupyter-lab"

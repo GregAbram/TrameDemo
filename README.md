@@ -17,7 +17,7 @@ connection, so you don't need X, VNC or any extra ports or tunnels.
    TrameDemo/install_trame_jupyter.sh
    ```
 
-   On Lonestar6, also set `PV` (see [Lonestar6](#lonestar6)).
+   On Lonestar6, see [Lonestar6](#lonestar6).
 
 2. Log out and back in.
 3. In TAP, submit a **Jupyter** job. Open it in **JupyterLab**.
@@ -79,7 +79,7 @@ variable:
 
 | Variable | Stampede3 default | Lonestar6 default | Meaning |
 |---|---|---|---|
-| `PV` | the test install above | none: set it in `hosts/ls6.env` or the environment | ParaView osmesa install; must contain `bin/pvpython` |
+| `PV` | the test install above | the ls6 test install below | ParaView osmesa install; must contain `bin/pvpython` |
 | `PV_MODULES` | `intel/24.0 impi/21.11` | `gcc/13.2 impi/21.18` | modules ParaView needs at run time |
 | `PYTHON_MODULE` | `python/3.12.11` | none | Python module; set it empty for none |
 | `SYSPY` | `/opt/apps/python/3.12.11/bin/python3` | `${PV}/bin/python3.12` or `python3` | Python 3.12 used to create the venv |
@@ -91,16 +91,16 @@ PV=/path/to/paraview-osmesa/6.1.1 PV_MODULES="intel/24.0 impi/21.11" ./install_t
 
 ### Lonestar6
 
-Lonestar6 doesn't have a default ParaView install yet. Set `PV` in
-`hosts/ls6.env`, or on the command line:
+On Lonestar6, the default ParaView is a test install at
+`/work/01249/gda/ls6/rpm-test/opt/apps/gcc13_2/impi21/paraview-osmesa/6.1.1`.
+Other users can't read it yet; they need to set `PV` to their own install.
 
-```bash
-PV=/path/to/paraview-osmesa/6.1.1 TrameDemo/install_trame_jupyter.sh
-```
-
-The venv is created from ParaView's bundled Python. TAP runs `jupyter-lab`
-from that venv without loading any modules, so the installer checks that this
-Python runs without them. If it doesn't, set `SYSPY` to another Python 3.12.
+The venv is created from ParaView's bundled Python. That Python needs GCC's
+`libssp.so.0`, which it only finds with the gcc module loaded. TAP starts
+`jupyter-lab` with whatever modules happen to be loaded, so the installer
+loads `PV_MODULES`, finds the directory that holds `libssp.so.0`, and writes
+it into `~/TRAME/bin/jupyter-lab`, which adds it to `LD_LIBRARY_PATH`. If the
+venv's Python still doesn't run, set `SYSPY` to another Python 3.12.
 
 Lonestar6 has AMD CPUs, so use a ParaView build made for Lonestar6. A
 Stampede3 build compiled for AVX-512 fails there with an illegal-instruction
