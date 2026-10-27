@@ -1,21 +1,23 @@
-# trame + ParaView in TAP Jupyter on Stampede3
+# trame + ParaView in TAP Jupyter on Stampede3 and Lonestar6
 
 This repo sets up interactive ParaView visualizations with
 [trame](https://kitware.github.io/trame/), inside a Jupyter notebook started
 from the [TACC Analysis Portal](https://tap.tacc.utexas.edu/) (TAP) on
-Stampede3. ParaView renders on the compute node, using its headless (OSMesa)
+Stampede3 or Lonestar6. ParaView renders on the compute node, using its headless (OSMesa)
 build. The view streams to your browser through the notebook's own
 connection, so you don't need X, VNC or any extra ports or tunnels.
 
 
 ## Quick start
 
-1. ssh to Stampede3 and run the installer once (it takes a few minutes):
+1. ssh to Stampede3 or Lonestar6 and run the installer once (it takes a few minutes):
 
    ```bash
    git clone https://github.com/GregAbram/TrameDemo.git
    TrameDemo/install_trame_jupyter.sh
    ```
+
+   On Lonestar6, also set `PV` (see [Lonestar6](#lonestar6)).
 
 2. Log out and back in.
 3. In TAP, submit a **Jupyter** job. Open it in **JupyterLab**.
@@ -26,15 +28,16 @@ You should see a cone you can rotate with the mouse.
 
 ## Requirements
 
-- A Stampede3 account with access to TAP.
-- The ParaView **osmesa** build. The default is a test install that anyone can
+- A Stampede3 or Lonestar6 account with access to TAP.
+- The ParaView **osmesa** build. On Stampede3, the default is a test install that anyone can
   read, at
   `/work/01249/gda/stampede3/rpm-test/opt/apps/intel24/impi21/paraview-osmesa/6.1.1`.
   It needs the `intel/24.0` and `impi/21.11` modules. Once the
   `paraview-osmesa` module is installed system-wide, this README and the
   installer defaults will change to use it.
-- `python/3.12.11` (`/opt/apps/python/3.12.11`). The venv must be Python 3.12
-  to match ParaView's bundled Python.
+- A Python 3.12 to create the venv, to match ParaView's bundled Python. On
+  Stampede3 that's `python/3.12.11` (`/opt/apps/python/3.12.11`); on
+  Lonestar6 it's ParaView's own bundled Python.
 - Internet access from the login node, for `pip`.
 
 ## What the installer does
@@ -67,20 +70,42 @@ can rerun the installer at any time: it updates everything in place.
 
 ### Settings
 
-The defaults are at the top of the script. You can override them with
-environment variables:
+The defaults for each machine are in `hosts/<system>.env`. The installer
+picks the file from the hostname: `<system>` is the part just before
+`.tacc.utexas.edu`, so `login1.ls6.tacc.utexas.edu` uses `hosts/ls6.env`.
+To support another machine, add a file for it. `HOST_ENV=/path/to/file.env`
+picks a file explicitly. You can override any setting with an environment
+variable:
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `PV` | the test install above | ParaView osmesa install; must contain `bin/pvpython` |
-| `PV_MODULES` | `intel/24.0 impi/21.11` | modules ParaView needs at run time |
-| `PYTHON_MODULE` | `python/3.12.11` | Python module |
-| `SYSPY` | `/opt/apps/python/3.12.11/bin/python3` | Python used to create the venv |
-| `TRAME` | `~/TRAME` | where everything is installed |
+| Variable | Stampede3 default | Lonestar6 default | Meaning |
+|---|---|---|---|
+| `PV` | the test install above | none: set it in `hosts/ls6.env` or the environment | ParaView osmesa install; must contain `bin/pvpython` |
+| `PV_MODULES` | `intel/24.0 impi/21.11` | `gcc/13.2 impi/21.18` | modules ParaView needs at run time |
+| `PYTHON_MODULE` | `python/3.12.11` | none | Python module; set it empty for none |
+| `SYSPY` | `/opt/apps/python/3.12.11/bin/python3` | `${PV}/bin/python3.12` or `python3` | Python 3.12 used to create the venv |
+| `TRAME` | `~/TRAME` | `~/TRAME` | where everything is installed |
 
 ```bash
 PV=/path/to/paraview-osmesa/6.1.1 PV_MODULES="intel/24.0 impi/21.11" ./install_trame_jupyter.sh
 ```
+
+### Lonestar6
+
+Lonestar6 doesn't have a default ParaView install yet. Set `PV` in
+`hosts/ls6.env`, or on the command line:
+
+```bash
+PV=/path/to/paraview-osmesa/6.1.1 TrameDemo/install_trame_jupyter.sh
+```
+
+The venv is created from ParaView's bundled Python. TAP runs `jupyter-lab`
+from that venv without loading any modules, so the installer checks that this
+Python runs without them. If it doesn't, set `SYSPY` to another Python 3.12.
+
+Lonestar6 has AMD CPUs, so use a ParaView build made for Lonestar6. A
+Stampede3 build compiled for AVX-512 fails there with an illegal-instruction
+error. Also check the module names with `module spider gcc` and
+`module spider impi`.
 
 ### Checking the install
 
@@ -181,7 +206,7 @@ jupyter-lab --no-browser --ip=$(hostname -s) --port=8888
 Then, on your laptop, replace `<node>` with the idev node's name:
 
 ```bash
-ssh -N -L 8888:<node>:8888 <user>@login2.stampede3.tacc.utexas.edu
+ssh -N -L 8888:<node>:8888 <user>@login2.stampede3.tacc.utexas.edu   # or login2.ls6.tacc.utexas.edu
 ```
 
 Then open `http://localhost:8888/lab?token=...`, using the token that
@@ -268,4 +293,4 @@ To check the kernel on a compute node without a browser:
 Tested on Stampede3 SKX compute nodes in TAP, October 2026: ParaView 6.1.1
 osmesa (intel24/impi21), trame 4.0.0, trame-vtk 2.11.17, trame-vuetify
 3.3.0, trame-jupyter-extension 2.1.4, JupyterLab 4.5.11, Python 3.12.11 for
-the venv, and ParaView's bundled 3.12.7.
+the venv, and ParaView's bundled 3.12.7. Lonestar6 support is not tested yet.

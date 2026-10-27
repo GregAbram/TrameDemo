@@ -1,12 +1,13 @@
 #!/bin/bash
 # install_trame_jupyter.sh -- one-time setup for running trame + ParaView
 # (osmesa build) inside a TACC Analysis Portal (TAP) Jupyter session on
-# Stampede3. Run it once from an ssh login; it is not sourced:
+# Stampede3 or Lonestar6. Run it once from an ssh login; it is not sourced:
 #
 #   ./install_trame_jupyter.sh            # create/update everything
 #   ./install_trame_jupyter.sh --fresh    # also rebuild the venv from scratch
 #
-# Settings below can be overridden with environment variables, e.g.
+# Settings come from hosts/<system>.env, chosen by hostname, and can be
+# overridden with environment variables, e.g.
 #   PV=/path/to/paraview-osmesa/6.1.1 ./install_trame_jupyter.sh
 #
 # It creates, under ${TRAME} (default ~/TRAME):
@@ -29,13 +30,40 @@ set -euo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
 # ── Settings ────────────────────────────────────────────────────────────────
-# ParaView osmesa install (must contain bin/pvpython) and the modules it needs
-PV=${PV:-/work/01249/gda/stampede3/rpm-test/opt/apps/intel24/impi21/paraview-osmesa/6.1.1}
-PV_MODULES=${PV_MODULES:-"intel/24.0 impi/21.11"}
-# Python 3.12, to match ParaView's bundled CPython 3.12
-PYTHON_MODULE=${PYTHON_MODULE:-python/3.12.11}
-SYSPY=${SYSPY:-/opt/apps/python/3.12.11/bin/python3}
+# PV:            ParaView osmesa install (must contain bin/pvpython)
+# PV_MODULES:    modules ParaView needs at run time
+# PYTHON_MODULE: module for the venv's Python; empty = none
+# SYSPY:         Python 3.12 that creates the venv, to match ParaView's
+#                bundled CPython 3.12; empty = ParaView's own ${PV}/bin/python3
+# Their defaults come from hosts/<system>.env, where <system> is the part of
+# the hostname before .tacc.utexas.edu (login1.ls6.tacc.utexas.edu -> ls6).
+# HOST_ENV=/path/to/file.env picks a file explicitly.
+FQDN=$(hostname -f 2>/dev/null || hostname)
+SYSTEM=${FQDN%.tacc.utexas.edu}
+SYSTEM=${SYSTEM##*.}
+HOST_ENV=${HOST_ENV:-${SCRIPT_DIR}/hosts/${SYSTEM}.env}
+if [[ -f "${HOST_ENV}" ]]; then
+    echo "Using settings from ${HOST_ENV}"
+    source "${HOST_ENV}"
+else
+    echo "No settings file ${HOST_ENV} for ${FQDN}; using PV, PV_MODULES, PYTHON_MODULE, SYSPY from the environment"
+fi
+PV=${PV:-}
+PV_MODULES=${PV_MODULES:-}
+PYTHON_MODULE=${PYTHON_MODULE:-}
+SYSPY=${SYSPY:-}
 TRAME=${TRAME:-${HOME}/TRAME}
+
+if [[ -z "${PV}" ]]; then
+    echo "ERROR: no ParaView set for ${FQDN}; set PV=/path/to/paraview-osmesa/<version>"
+    exit 1
+fi
+if [[ -z "${SYSPY}" ]]; then
+    for p in "${PV}/bin/python3.12" "${PV}/bin/python3"; do
+        [[ -x "$p" ]] && { SYSPY=$p; break; }
+    done
+    SYSPY=${SYSPY:-${PV}/bin/python3}   # for the error message below
+fi
 
 VENV=${TRAME}/trame_venv
 PV_VERSION=$(basename "${PV}")
@@ -46,6 +74,8 @@ KERNEL_DIR=${HOME}/.local/share/jupyter/kernels/${KERNEL_NAME}
 for f in "${PV}/bin/pvpython" "${SYSPY}"; do
     [[ -e "$f" ]] || { echo "ERROR: missing $f (see Settings at the top of $0)"; exit 1; }
 done
+"${SYSPY}" -c 'import sys; sys.exit(sys.version_info[:2] != (3, 12))' || {
+    echo "ERROR: ${SYSPY} is not Python 3.12 (ParaView's bundled Python is 3.12)"; exit 1; }
 
 # Keep an active venv and stray paths out of the build
 type deactivate &>/dev/null && deactivate
@@ -107,6 +137,15 @@ if [[ ! -x "${VENV}/bin/python" ]]; then
 fi
 
 PY="${VENV}/bin/python"
+
+# bin/jupyter-lab runs this Python without loading any modules, so it has to
+# work on its own (matters when the venv is built from ParaView's Python)
+if ! env -u LD_LIBRARY_PATH "${PY}" -c 'import ssl, sqlite3, ctypes'; then
+    echo "ERROR: ${PY} (from ${SYSPY}) does not run without modules loaded;"
+    echo "       set SYSPY to a standalone Python 3.12"
+    exit 1
+fi
+
 "${PY}" -m pip install --upgrade pip
 
 # trame stack (versions tested with ParaView 6.1.1 on Stampede3, 2026-10)
